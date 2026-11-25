@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Media & Course Downloader",
-  "version": "3.0.0",
-  "description": "Sniffs media, downloads HLS/DASH streams (with MP4 remux), and bulk-downloads Udemy courses with folders, subtitles, articles and resources.",
+  "version": "3.1.0",
+  "description": "Sniffs media, downloads HLS/DASH streams (with MP4 remux and in-browser AES-128 decryption), bulk-downloads Udemy courses with folders, subtitles, articles and resources, and exports Widevine/CENC jobs for offline decryption.",
   "permissions": [
     "webRequest",
     "downloads",

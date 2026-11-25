@@ -1,4 +1,16 @@
 const mediaMap = new Map();
+// Latest EME/license capture per tab (init data = PSSH, license = request body).
+const drmMap = new Map();
+
+function putDrm(tabId, patch) {
+  if (tabId == null || tabId < 0 || !patch) return;
+  const cur = drmMap.get(tabId) || {};
+  drmMap.set(tabId, { ...cur, ...patch, updatedAt: Date.now() });
+}
+
+function getDrm(tabId) {
+  return drmMap.get(tabId) || null;
+}
 
 const MEDIA_REGEX = /\.(mp4|m4v|webm|mkv|mov|avi|flv|m3u8|mpd)(\?.*)?$/i;
 const MEDIA_TYPES = ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 'video/x-matroska', 'application/dash+xml'];
@@ -53,10 +65,11 @@ chrome.webRequest.onHeadersReceived.addListener(
   ['responseHeaders']
 );
 
-chrome.tabs.onRemoved.addListener((tabId) => mediaMap.delete(tabId));
+chrome.tabs.onRemoved.addListener((tabId) => { mediaMap.delete(tabId); drmMap.delete(tabId); });
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === 'loading' && changeInfo.url) {
     mediaMap.delete(tabId);
+    drmMap.delete(tabId);
     chrome.action.setBadgeText({ tabId, text: '' });
   }
 });
@@ -89,6 +102,20 @@ function openManagerTab({ tabId, view, enqueueStream }) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === 'drmCaptureFound' && sender.tab && sender.tab.id != null) {
+    putDrm(sender.tab.id, message.capture);
+    sendResponse({ ok: true });
+    return false;
+  }
+  if (message.action === 'getDrmCapture') {
+    sendResponse({ capture: getDrm(message.tabId) });
+    return false;
+  }
+  if (message.action === 'clearDrmCapture') {
+    if (message.tabId != null) drmMap.delete(message.tabId);
+    sendResponse({ ok: true });
+    return false;
+  }
   if (message.action === 'pageDomMediaFound' && sender.tab && sender.tab.id != null) {
     (message.items || []).forEach((item) => addMediaItem(sender.tab.id, item));
     sendResponse({ ok: true });

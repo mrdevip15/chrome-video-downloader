@@ -41,6 +41,12 @@
         </label>
         <label class="chk"><input type="checkbox" id="opt-remux" checked> Remux HLS TS&rarr;MP4</label>
         <label class="chk"><input type="checkbox" id="opt-skip" checked> Skip Completed / Existing</label>
+        <label>DRM
+          <select id="opt-drm">
+            <option value="skip">Skip</option>
+            <option value="export">Export (Widevine job)</option>
+          </select>
+        </label>
       </div>
     </section>
 
@@ -163,6 +169,7 @@
   <script src="lib/vtt.js"></script>
   <script src="lib/m3u8.js"></script>
   <script src="lib/mpd.js"></script>
+  <script src="lib/drm.js"></script>
   <script src="lib/engine.js"></script>
   <script src="lib/udemy-model.js"></script>
   <script src="lib/export.js"></script>

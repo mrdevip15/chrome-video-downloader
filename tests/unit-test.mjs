@@ -5,6 +5,7 @@ import http from 'node:http';
 import vm from 'node:vm';
 import os from 'node:os';
 import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -33,6 +34,9 @@ const sandbox = vm.createContext({
   RegExp,
   Promise,
   Error,
+  crypto: globalThis.crypto,
+  atob: globalThis.atob,
+  btoa: globalThis.btoa,
   setTimeout,
   clearTimeout,
   setInterval,
@@ -47,11 +51,12 @@ loadModule('vendor/mux.min.js', sandbox);
 loadModule('lib/vtt.js', sandbox);
 loadModule('lib/m3u8.js', sandbox);
 loadModule('lib/mpd.js', sandbox);
+loadModule('lib/drm.js', sandbox);
 loadModule('lib/engine.js', sandbox);
 loadModule('lib/udemy-model.js', sandbox);
 loadModule('lib/export.js', sandbox);
 
-const { CourseFormatter, M3U8, Engine, UdemyModel, CourseExport } = sandbox;
+const { CourseFormatter, M3U8, DRM, Engine, UdemyModel, CourseExport } = sandbox;
 
 // 1. lib/vtt.js
 console.log('Testing lib/vtt.js...');
@@ -196,6 +201,54 @@ console.log('Testing lib/export.js...');
   assert.match(idxHtml, /01%20-%20Intro\/Resources\/a%20b\.txt/);
 }
 
+// 4b. lib/drm.js
+console.log('Testing lib/drm.js...');
+{
+  const seq = 0x0102030405;
+  const iv = DRM.ivForSegment({ iv: null }, seq);
+  assert.equal(iv.length, 16);
+  assert.equal(DRM.hexFromBytes(iv), '00000000000000000000000102030405');
+
+  const explicit = DRM.ivForSegment({ iv: '0xAABBCCDDEEFF00112233445566778899' }, 7);
+  assert.equal(DRM.hexFromBytes(explicit), 'aabbccddeeff00112233445566778899');
+
+  // Round-trip base64 helpers
+  const bytes = new Uint8Array([0, 1, 2, 254, 255]);
+  assert.equal(DRM.b64FromBytes(bytes), 'AAEC/v8=');
+  assert.deepEqual(DRM.bytesFromB64('AAEC/v8='), bytes);
+
+  // Build a syntactically valid pssh box (version 0, 16-byte system id + data)
+  const systemId = DRM.bytesFromHex('edef8ba979d64acea3c827dcd51d21ed');
+  const payload = DRM.bytesFromHex('0801121000000000000000000000000000000000');
+  const boxLen = 32 + payload.length;
+  const psshBox = new Uint8Array(boxLen);
+  new DataView(psshBox.buffer).setUint32(0, boxLen);
+  psshBox.set(new TextEncoder().encode('pssh'), 4);
+  psshBox.set(systemId, 12);
+  new DataView(psshBox.buffer).setUint32(28, payload.length);
+  psshBox.set(payload, 32);
+  const psshB64 = DRM.b64FromBytes(psshBox);
+
+  // psshFromMpd
+  const mpd = `<MPD><Period><AdaptationSet>
+    <ContentProtection schemeIdUri="urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed" cenc:default_KID="0123abcd-4567-89ab-cdef-0123456789ab">
+      <cenc:pssh>${psshB64}</cenc:pssh>
+    </ContentProtection></AdaptationSet></Period></MPD>`;
+  const prot = DRM.psshFromMpd(mpd);
+  assert.deepEqual(JSON.parse(JSON.stringify(prot.kids)), ['0123abcd-4567-89ab-cdef-0123456789ab']);
+  assert.equal(prot.pssh.length, 1);
+  assert.equal(prot.pssh[0].systemId, 'edef8ba9-79d6-4ace-a3c8-27dcd51d21ed');
+
+  // extractPssh on a synthetic fMP4 init segment
+  const init = new Uint8Array(8 + psshBox.length);
+  new DataView(init.buffer).setUint32(0, 8);
+  init.set(new TextEncoder().encode('ftyp'), 4);
+  init.set(psshBox, 8);
+  const found = DRM.extractPssh(init);
+  assert.equal(found.length, 1);
+  assert.equal(found[0].b64, psshB64);
+}
+
 // 5. lib/engine.js: fetchRetry, runOrdered, and real ffmpeg HLS TS -> mux.js MP4 remux
 console.log('Testing lib/engine.js & mux.js transmuxing...');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cvd-unit-'));
@@ -214,6 +267,25 @@ try {
     path.join(hlsDir, 'index.m3u8')
   ]);
 
+  // AES-128 variant of the same segments (RFC 8216: implicit IV = media sequence number)
+  const aesDir = path.join(tmp, 'enc');
+  fs.mkdirSync(aesDir);
+  const aesKey = crypto.randomBytes(16);
+  const tsFiles = fs.readdirSync(hlsDir).filter((f) => f.endsWith('.ts')).sort();
+  tsFiles.forEach((f, i) => {
+    const iv = Buffer.alloc(16);
+    iv.writeUInt32BE(i, 12);
+    const cipher = crypto.createCipheriv('aes-128-cbc', aesKey, iv);
+    const enc = Buffer.concat([cipher.update(fs.readFileSync(path.join(hlsDir, f))), cipher.final()]);
+    fs.writeFileSync(path.join(aesDir, `${f}.enc`), enc);
+  });
+  fs.writeFileSync(
+    path.join(aesDir, 'index.m3u8'),
+    '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:2\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-KEY:METHOD=AES-128,URI="key.bin"\n' +
+      tsFiles.map((f) => `#EXTINF:2.0,\n${f}.enc`).join('\n') +
+      '\n#EXT-X-ENDLIST\n'
+  );
+
   let flakyCalls = 0;
   const server = http.createServer((req, res) => {
     if (req.url === '/flaky') {
@@ -229,7 +301,23 @@ try {
     }
     if (req.url === '/encrypted.m3u8') {
       res.writeHead(200);
-      res.end('#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="k"\n#EXTINF:2,\nseg_000.ts\n#EXT-X-ENDLIST\n');
+      res.end('#EXTM3U\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI="k",KEYFORMAT="urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed"\n#EXTINF:2,\nseg_000.ts\n#EXT-X-ENDLIST\n');
+      return;
+    }
+    if (req.url === '/enc/key.bin') {
+      res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+      res.end(aesKey);
+      return;
+    }
+    if (req.url.startsWith('/enc/')) {
+      const fp = path.join(aesDir, path.basename(req.url));
+      if (fs.existsSync(fp)) {
+        res.writeHead(200);
+        fs.createReadStream(fp).pipe(res);
+      } else {
+        res.writeHead(404);
+        res.end('not found');
+      }
       return;
     }
     const clean = req.url.replace(/^\//, '');
@@ -291,6 +379,38 @@ try {
       Engine.downloadHls(`${base}/encrypted.m3u8`, { sink: nodeSink, basePath: 'enc', concurrency: 2, maxHeight: 0, remux: true }),
       (e) => e instanceof Engine.EncryptedError && e.encrypted === true
     );
+
+    // Test DRM export mode saves raw encrypted bytes instead of throwing
+    const drmOuts = await Engine.downloadHls(`${base}/encrypted.m3u8`, {
+      sink: nodeSink,
+      basePath: 'drmraw',
+      concurrency: 2,
+      maxHeight: 0,
+      remux: true,
+      allowEncrypted: true
+    });
+    assert.equal(drmOuts[0].path, 'drmraw.enc.ts');
+    assert.equal(drmOuts[0].encrypted, true);
+    assert.ok(fs.statSync(path.join(outDir, 'drmraw.enc.ts')).size > 0);
+
+    // Test AES-128 HLS decrypt (in-browser WebCrypto path) then remux
+    const aesOuts = await Engine.downloadHls(`${base}/enc/index.m3u8`, {
+      sink: nodeSink,
+      basePath: 'aes',
+      concurrency: 3,
+      maxHeight: 0,
+      remux: true
+    });
+    assert.equal(aesOuts.length, 1);
+    assert.equal(aesOuts[0].path, 'aes.mp4');
+    assert.equal(aesOuts[0].encrypted, false);
+    const aesProbe = JSON.parse(execFileSync('ffprobe', [
+      '-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', path.join(outDir, 'aes.mp4')
+    ], { encoding: 'utf8' }));
+    const aesDur = parseFloat(aesProbe.format.duration);
+    console.log(`AES-128 decrypted MP4 duration=${aesDur.toFixed(2)}s`);
+    assert.ok(aesDur >= 5.5 && aesDur <= 6.5, `Expected ~6s from decrypted HLS, got ${aesDur}`);
+    execFileSync('ffmpeg', ['-v', 'error', '-i', path.join(outDir, 'aes.mp4'), '-f', 'null', '-']);
 
     // Test HLS download + mux.js remux
     const outs = await Engine.downloadHls(`${base}/index.m3u8`, {

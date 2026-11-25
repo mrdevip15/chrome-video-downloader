@@ -29,7 +29,12 @@
 
   // Only real manifests are forwarded (API JSON calls are ignored).
   window.addEventListener('message', (event) => {
-    if (event.source !== window || !event.data || event.data.type !== '__UDEMY_MEDIA_SNIFFED__') return;
+    if (event.source !== window || !event.data) return;
+    if (event.data.type === '__DRM_CAPTURE__') {
+      try { chrome.runtime.sendMessage({ action: 'drmCaptureFound', capture: event.data.capture }); } catch (_) {}
+      return;
+    }
+    if (event.data.type !== '__UDEMY_MEDIA_SNIFFED__') return;
     const { url, isM3u8 } = event.data;
     if (!url) return;
     const full = resolveUrl(url);
@@ -83,6 +88,9 @@
       const items = scanDomVideos();
       send(items);
       sendResponse({ items });
+    }
+    if (msg && msg.action === 'getPageDrmCapture') {
+      sendResponse({ capture: (window.__DRM_CAPTURES__ || null) });
     }
     return false;
   });

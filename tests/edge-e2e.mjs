@@ -283,7 +283,7 @@ Let us begin.
 
     if (u === '/media/encrypted.m3u8') {
       res.writeHead(200, { 'Content-Type': 'application/vnd.apple.mpegurl' });
-      res.end('#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="https://example.com/key"\n#EXTINF:2,\n/media/hls/seg_000.ts\n#EXT-X-ENDLIST\n');
+      res.end('#EXTM3U\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI="https://example.com/key",KEYFORMAT="urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed"\n#EXTINF:2,\n/media/hls/seg_000.ts\n#EXT-X-ENDLIST\n');
       return;
     }
 

@@ -7,7 +7,8 @@
     maxHeight: 0,
     concurrency: 4,
     remux: true,
-    skipExisting: true
+    skipExisting: true,
+    drmMode: 'skip'
   };
 
   let targetTabId = null;
@@ -78,6 +79,7 @@
     $('opt-concurrency').value = String(s.concurrency);
     $('opt-remux').checked = !!s.remux;
     $('opt-skip').checked = !!s.skipExisting;
+    if ($('opt-drm')) $('opt-drm').value = s.drmMode === 'export' ? 'export' : 'skip';
     return s;
   }
 
@@ -87,7 +89,8 @@
       maxHeight: parseInt($('opt-max-res').value, 10) || 0,
       concurrency: isNaN(c) ? 4 : Math.max(1, Math.min(8, c)),
       remux: $('opt-remux').checked,
-      skipExisting: $('opt-skip').checked
+      skipExisting: $('opt-skip').checked,
+      drmMode: $('opt-drm') && $('opt-drm').value === 'export' ? 'export' : 'skip'
     };
   }
 
@@ -152,6 +155,65 @@
         });
       }
     } catch (_) {}
+  }
+
+  // --- DRM (Widevine / CENC) ---
+  function requestDrmCapture() {
+    return new Promise((resolve) => {
+      if (targetTabId == null) return resolve(null);
+      chrome.runtime.sendMessage({ action: 'getDrmCapture', tabId: targetTabId }, (res) => {
+        void chrome.runtime.lastError;
+        const cap = res && res.capture;
+        if (cap && (cap.license || cap.initData)) return resolve(cap);
+        chrome.tabs.sendMessage(targetTabId, { action: 'getPageDrmCapture' }, (r) => {
+          void chrome.runtime.lastError;
+          resolve((r && r.capture) || cap || null);
+        });
+      });
+    });
+  }
+
+  function buildDrmJob(basePath, outputs, label) {
+    const encOutputs = (outputs || []).filter((o) => o && o.encrypted);
+    if (!encOutputs.length) return null;
+    const pssh = [];
+    encOutputs.forEach((o) => (o.pssh || []).forEach((p) => {
+      if (p && p.b64 && !pssh.some((x) => x.b64 === p.b64)) pssh.push(p);
+    }));
+    const kids = [...new Set(encOutputs.flatMap((o) => o.kids || []))];
+    return {
+      version: 1,
+      type: 'widevine',
+      createdAt: new Date().toISOString(),
+      label: label || null,
+      output: `${basePath}.mp4`,
+      files: encOutputs.map((o) => o.path),
+      encryption: encOutputs.map((o) => o.encryption).filter(Boolean),
+      pssh,
+      kids
+    };
+  }
+
+  // Saves the job next to the encrypted media so tools/widevine_helper.py can pick it up.
+  async function writeDrmJob(basePath, outputs, label) {
+    const job = buildDrmJob(basePath, outputs, label);
+    if (!job) return null;
+    const cap = await requestDrmCapture();
+    if (cap) {
+      if (cap.license) {
+        job.license = {
+          url: cap.license.url,
+          method: cap.license.method,
+          headers: cap.license.headers || {},
+          bodyBase64: cap.license.bodyBase64 || null,
+          cookies: cap.license.cookies || ''
+        };
+      }
+      if (cap.initData) job.initData = cap.initData;
+    }
+    const jobPath = `${basePath}.widevine.json`;
+    await sink.writeText(jobPath, JSON.stringify(job, null, 2));
+    return jobPath;
   }
 
   // --- Target Tab ---
@@ -302,6 +364,7 @@
           concurrency: settings.concurrency,
           maxHeight: settings.maxHeight,
           remux: settings.remux,
+          allowEncrypted: settings.drmMode === 'export',
           signal: currentAbort.signal,
           log: (m) => log(m),
           onProgress: ({ done, total, bytes }) => {
@@ -309,13 +372,16 @@
             setBanner(true, `HLS: ${safeBase}`, pct, `Segment ${done}/${total} (${formatBytes(bytes)})`);
           }
         });
+        const jobPath = await writeDrmJob(`${prefix}${safeBase}`, outputs, safeBase);
         outDesc = outputs.map((o) => `${o.path} (${formatBytes(o.bytes)})`).join(', ');
+        if (jobPath) log(`DRM job written: ${jobPath} — run tools/widevine_helper.py on the output folder`, 'warn');
       } else if (isDash) {
         const outputs = await Engine.downloadDash(url, {
           sink,
           basePath: `${prefix}${safeBase}`,
           concurrency: settings.concurrency,
           maxHeight: settings.maxHeight,
+          allowEncrypted: settings.drmMode === 'export',
           signal: currentAbort.signal,
           log: (m) => log(m),
           onProgress: ({ done, total, bytes }) => {
@@ -323,7 +389,9 @@
             setBanner(true, `DASH: ${safeBase}`, pct, `Segment ${done}/${total} (${formatBytes(bytes)})`);
           }
         });
+        const jobPath = await writeDrmJob(`${prefix}${safeBase}`, outputs, safeBase);
         outDesc = outputs.map((o) => `${o.path} (${formatBytes(o.bytes)})`).join(', ');
+        if (jobPath) log(`DRM job written: ${jobPath} — run tools/widevine_helper.py on the output folder`, 'warn');
       } else {
         const extMatch = url.match(/\.(mp4|m4v|webm|mkv|mov|avi|flv)(\?|$)/i);
         const ext = extMatch ? `.${extMatch[1].toLowerCase()}` : '.mp4';
@@ -689,6 +757,7 @@
                     concurrency: settings.concurrency,
                     maxHeight: settings.maxHeight,
                     remux: settings.remux,
+                    allowEncrypted: settings.drmMode === 'export',
                     signal: currentAbort.signal,
                     log: (m) => log(`  [${lec.fileBase}] ${m}`),
                     onProgress: ({ done, total, bytes }) => {
@@ -699,6 +768,11 @@
                     rec.videoFile = outs[0].path.startsWith(`${rootDir}/`) ? outs[0].path.slice(rootDir.length + 1) : outs[0].path;
                     rec.videoStatus = 'done';
                     log(`Saved HLS -> ${rec.videoFile}`, 'ok');
+                    const jobPath = await writeDrmJob(fullBase, outs, `${currentCourse.title} — ${lec.title}`);
+                    if (jobPath) {
+                      rec.videoStatus = 'drm-export';
+                      log(`DRM job written: ${jobPath} (decrypt with tools/widevine_helper.py)`, 'warn');
+                    }
                   }
                 }
               } else if (dashUrl) {
@@ -707,6 +781,7 @@
                   basePath: fullBase,
                   concurrency: settings.concurrency,
                   maxHeight: settings.maxHeight,
+                  allowEncrypted: settings.drmMode === 'export',
                   signal: currentAbort.signal,
                   log: (m) => log(`  [${lec.fileBase}] ${m}`),
                   onProgress: ({ done, total, bytes }) => {
@@ -717,9 +792,18 @@
                   rec.videoFile = outs[0].path.startsWith(`${rootDir}/`) ? outs[0].path.slice(rootDir.length + 1) : outs[0].path;
                   rec.videoStatus = 'done';
                   log(`Saved DASH -> ${rec.videoFile}`, 'ok');
+                  const jobPath = await writeDrmJob(fullBase, outs, `${currentCourse.title} — ${lec.title}`);
+                  if (jobPath) {
+                    rec.videoStatus = 'drm-export';
+                    log(`DRM job written: ${jobPath} (decrypt with tools/widevine_helper.py)`, 'warn');
+                  }
                 }
               } else if (asset.course_is_drmed || asset.media_license_token) {
-                throw new Engine.EncryptedError('Lecture uses DRM license — video skipped');
+                throw new Engine.EncryptedError(
+                  settings.drmMode === 'export'
+                    ? 'Lecture is DRM-only and the player exposes no manifest URL. Open the lecture in the page, let it play 2s, then use the Live Sniffer tab to export it.'
+                    : 'Lecture uses DRM license — enable DRM: Export to capture it'
+                );
               } else {
                 log(`No video stream URL found for ${lec.fileBase}`, 'warn');
               }

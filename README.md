@@ -8,10 +8,11 @@ Manifest V3 browser extension (Chrome & Microsoft Edge) that sniffs live media s
 - **Direct Disk Streaming (File System Access API)**: Pick any local output folder (e.g. `D:\Courses`) to stream segments straight to disk without buffering large videos in RAM, or fall back to Chrome/Edge's `Downloads` folder.
 - **HLS & DASH Engine**:
   - Parses master/media `.m3u8` playlists (resolution selection, `#EXT-X-MAP`, `#EXT-X-BYTERANGE`, separate audio renditions).
+  - **HLS AES-128 decryption in-browser**: reads `#EXT-X-KEY`, fetches the key with the page session, derives the per-segment IV (explicit `IV=` or media sequence) and decrypts segments with WebCrypto before remuxing.
   - Remuxes MPEG-TS HLS segments to `.mp4` client-side via `mux.js` (`vendor/mux.min.js`).
   - Parses static DASH `.mpd` manifests (`SegmentTemplate`, `SegmentTimeline`, `SegmentList`, `BaseURL`).
   - Parallel ordered segment fetching (1–8 workers) with exponential backoff retries (`408`/`429`/`5xx`).
-  - Automatically detects and skips encrypted/DRM streams (`#EXT-X-KEY`, `ContentProtection`, Udemy DRM licenses) without aborting the batch.
+  - **DRM export mode**: for Widevine/CENC streams the encrypted fMP4 fragments are saved as `.enc.mp4` together with a `*.widevine.json` job (PSSH/KID + captured license request), which `tools/widevine_helper.py` decrypts with your own CDM.
 - **Udemy Course Bulk Exporter**:
   - Crawls full course syllabus (`subscriber-curriculum-items`) and resolves per-lecture streams, subtitles, articles, and supplementary assets.
   - Per-section and per-lecture checkboxes, max resolution selector, subtitle language filter, and persistent progress/resume via `chrome.storage.local`.
@@ -30,11 +31,14 @@ Manifest V3 browser extension (Chrome & Microsoft Edge) that sniffs live media s
 ├── manager.html/.css/.js # Full download manager UI & queue runner
 ├── lib/
 │   ├── engine.js         # Retrying fetch, parallel ordered runner, sinks, HLS/DASH
+│   ├── drm.js            # HLS AES-128 keys/IV, WebCrypto decrypt, PSSH/KID extraction
 │   ├── m3u8.js           # HLS playlist parser & variant picker
 │   ├── mpd.js            # Static DASH MPD parser
 │   ├── vtt.js            # WebVTT -> SRT converter & path sanitizer
 │   ├── udemy-model.js    # Curriculum -> course tree & stream picker
 │   └── export.js         # Article HTML/Markdown & course index.html generator
+├── tools/
+│   └── widevine_helper.py # Widevine license + CENC decrypt helper (pywidevine/mp4decrypt)
 ├── vendor/
 │   └── mux.min.js        # mux.js v6.3.0 (TS -> MP4 transmuxer)
 ├── icons/                # Extension icons (16, 48, 128)
@@ -48,6 +52,49 @@ Manifest V3 browser extension (Chrome & Microsoft Edge) that sniffs live media s
 1. Open `edge://extensions/` (or `chrome://extensions/`).
 2. Enable **Developer mode**.
 3. Click **Load unpacked** and select `D:\WORK\chrome-video-downloader`.
+
+## DRM (Widevine / CENC)
+
+Two things are handled differently from the old "detect and skip" behaviour.
+
+**1. HLS AES-128 — decrypted in-browser, nothing else needed.**
+Playlists using `#EXT-X-KEY:METHOD=AES-128` (the common non-DRM protection on
+course CDNs) are downloaded, decrypted with WebCrypto using the key URL the
+playlist points at, and remuxed to MP4. Segment IVs come from `IV=` when present,
+otherwise from the media sequence number per RFC 8216.
+
+**2. Widevine / SAMPLE-AES / CENC — export + offline decrypt.**
+The CDM's device keys live inside the browser and cannot be extracted, so no
+extension can decrypt Widevine by itself. Instead the extension does the part it
+can do well:
+
+- Set **DRM** to `Export (Widevine job)` in the manager.
+- Download the lecture/stream. The encrypted fragments are saved as
+  `*.enc.mp4` (video) and `*.audio.enc.m4a` (audio).
+- A `<name>.widevine.json` job is written next to them containing the `pssh`
+  boxes extracted from the init segment / MPD, the `kids`, and the license
+  request the page made (URL, headers, cookies, init data) captured by the
+  in-page EME/fetch hooks.
+- Decrypt offline with your own CDM:
+
+```powershell
+pip install pywidevine requests
+python tools/widevine_helper.py "D:\Courses\My Course" --cdm C:\path\to\device.wvd
+```
+
+The helper requests a license with *your* L3 CDM (replaying the captured URL and
+headers), derives the content keys, decrypts with `mp4decrypt` (Bento4) or
+`ffmpeg`, and muxes video+audio into `<name>.mp4`. Licensing is cached in
+`*.keys.json`, and `--keys KID:KEY` skips licensing entirely if you already have
+the keys. `--watch` keeps the helper polling the folder for new jobs.
+
+For a lecture whose player never exposes a manifest URL via the API, open the
+lecture in the page, let it play for a couple of seconds so the hooks capture the
+license request, then download it from the **Live Sniffer** tab — the sniffer sees
+the real manifest.
+
+> Both modes only operate on content you are entitled to access with your own
+> account and CDM.
 
 ## Testing
 

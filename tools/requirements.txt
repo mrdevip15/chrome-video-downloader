@@ -1,0 +1,7 @@
+# Widevine licensing (only needed for tools/widevine_helper.py --cdm mode)
+pywidevine>=1.8.0
+requests>=2.31.0
+
+# Bento4 mp4decrypt is a separate binary, not a pip package:
+#   https://github.com/axiomatic-systems/Bento4/releases
+# ffmpeg is used as a fallback decryptor and for muxing video+audio.
