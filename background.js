@@ -12,6 +12,19 @@ const MEDIA_TYPES = [
   'application/dash+xml'
 ];
 
+function addMediaItem(tabId, item) {
+  if (tabId < 0) return;
+  let list = mediaMap.get(tabId) || [];
+  if (!list.some((existing) => existing.url === item.url)) {
+    list.push(item);
+    mediaMap.set(tabId, list);
+    chrome.action.setBadgeText({ tabId, text: String(list.length) });
+    const hasHls = list.some((i) => i.isHls);
+    chrome.action.setBadgeBackgroundColor({ tabId, color: hasHls ? '#7C3AED' : '#2563EB' });
+  }
+}
+
+// 1. Network sniffing via webRequest
 chrome.webRequest.onHeadersReceived.addListener(
   (details) => {
     if (details.tabId < 0) return;
@@ -35,28 +48,23 @@ chrome.webRequest.onHeadersReceived.addListener(
     }
 
     if (isMedia) {
-      let list = mediaMap.get(details.tabId) || [];
-      if (!list.some((item) => item.url === details.url)) {
-        let filename = 'video';
-        try {
-          const parsed = new URL(details.url);
-          const pathSegments = parsed.pathname.split('/').filter(Boolean);
-          if (pathSegments.length > 0) {
-            filename = decodeURIComponent(pathSegments[pathSegments.length - 1]);
-          }
-        } catch (_) {}
+      let filename = 'video';
+      try {
+        const parsed = new URL(details.url);
+        const pathSegments = parsed.pathname.split('/').filter(Boolean);
+        if (pathSegments.length > 0) {
+          filename = decodeURIComponent(pathSegments[pathSegments.length - 1]);
+        }
+      } catch (_) {}
 
-        list.push({
-          url: details.url,
-          filename: filename,
-          isHls: isHls,
-          type: details.type,
-          timestamp: Date.now()
-        });
-        mediaMap.set(details.tabId, list);
-        chrome.action.setBadgeText({ tabId: details.tabId, text: String(list.length) });
-        chrome.action.setBadgeBackgroundColor({ tabId: details.tabId, color: isHls ? '#7C3AED' : '#2563EB' });
-      }
+      addMediaItem(details.tabId, {
+        url: details.url,
+        filename: filename,
+        isHls: isHls,
+        type: details.type,
+        source: 'network',
+        timestamp: Date.now()
+      });
     }
   },
   { urls: ['<all_urls>'] },
@@ -74,7 +82,16 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   }
 });
 
+// 2. Messaging interface
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === 'pageDomMediaFound' && sender.tab && sender.tab.id) {
+    if (Array.isArray(message.items)) {
+      message.items.forEach((item) => addMediaItem(sender.tab.id, item));
+    }
+    sendResponse({ ok: true });
+    return true;
+  }
+
   if (message.action === 'getMedia') {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs.length === 0) {
@@ -86,6 +103,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true;
   }
+
   if (message.action === 'download') {
     chrome.downloads.download({
       url: message.url,

@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Media Sniffer & Downloader",
-  "version": "1.0",
-  "description": "Sniffs and downloads media stream URLs and direct video files detected in tabs.",
+  "version": "1.1",
+  "description": "Sniffs and downloads media stream URLs, HLS (.m3u8), and page DOM video links.",
   "permissions": [
     "webRequest",
     "downloads",
-    "activeTab"
+    "activeTab",
+    "scripting"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -14,6 +15,13 @@
   "background": {
     "service_worker": "background.js"
   },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
   "action": {
     "default_popup": "popup.html",
     "default_title": "Detected Videos"
