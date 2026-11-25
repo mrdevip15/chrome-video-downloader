@@ -2,16 +2,44 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Detected Videos</title>
+  <title>Media & Course Downloader</title>
   <style>
     body {
-      width: 400px;
+      width: 440px;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       margin: 0;
       padding: 12px;
       background: #0f172a;
       color: #e2e8f0;
       box-sizing: border-box;
+    }
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid #334155;
+      margin-bottom: 12px;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 8px 12px;
+      background: none;
+      border: none;
+      color: #94a3b8;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+    }
+    .tab-btn.active {
+      color: #38bdf8;
+      border-bottom-color: #38bdf8;
+    }
+    .panel {
+      display: none;
+    }
+    .panel.active {
+      display: block;
     }
     header {
       display: flex;
@@ -30,13 +58,13 @@
       align-items: center;
       gap: 6px;
     }
-    #count {
+    #count, #curriculum-count {
       background: #1e293b;
       padding: 2px 6px;
       border-radius: 4px;
       font-size: 11px;
     }
-    .rescan-btn {
+    .action-sub-btn {
       padding: 4px 8px;
       font-size: 11px;
       font-weight: 500;
@@ -46,21 +74,21 @@
       border-radius: 4px;
       cursor: pointer;
     }
-    .rescan-btn:hover {
+    .action-sub-btn:hover {
       background: #334155;
       color: #fff;
     }
-    #empty {
-      padding: 24px 0;
+    .empty-msg {
+      padding: 20px 0;
       text-align: center;
       color: #64748b;
-      font-size: 13px;
+      font-size: 12px;
     }
     .media-list {
       display: flex;
       flex-direction: column;
       gap: 8px;
-      max-height: 420px;
+      max-height: 400px;
       overflow-y: auto;
     }
     .media-item {
@@ -96,18 +124,10 @@
       border-radius: 3px;
       text-transform: uppercase;
     }
-    .badge.hls {
-      background: #7c3aed;
-      color: #ede9fe;
-    }
-    .badge.direct {
-      background: #0284c7;
-      color: #e0f2fe;
-    }
-    .badge.source {
-      background: #334155;
-      color: #94a3b8;
-    }
+    .badge.hls { background: #7c3aed; color: #ede9fe; }
+    .badge.direct { background: #0284c7; color: #e0f2fe; }
+    .badge.source { background: #334155; color: #94a3b8; }
+    .badge.course { background: #059669; color: #d1fae5; }
     .url {
       font-size: 11px;
       color: #64748b;
@@ -168,21 +188,76 @@
     button.copy:hover {
       background: #475569;
     }
+    /* Course Downloader styling */
+    .course-meta {
+      background: #1e293b;
+      padding: 10px;
+      border-radius: 6px;
+      margin-bottom: 10px;
+      font-size: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .course-meta strong {
+      color: #38bdf8;
+    }
+    .bulk-ctrl {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
   </style>
 </head>
 <body>
-  <header>
-    <h2>
-      <span>Detected Videos</span>
-      <span id="count">0</span>
-    </h2>
-    <button class="rescan-btn" id="rescan">Scan Page Links</button>
-  </header>
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="tab-sniffer">Live Media Sniffer</button>
+    <button class="tab-btn" data-tab="tab-course">Udemy Course Bulk Downloader</button>
+  </div>
 
-  <div id="empty">No videos detected yet. Play media or click "Scan Page Links".</div>
-  <div class="media-list" id="list"></div>
+  <!-- Panel 1: Live Sniffer -->
+  <div class="panel active" id="tab-sniffer">
+    <header>
+      <h2>
+        <span>Detected Media</span>
+        <span id="count">0</span>
+      </h2>
+      <button class="action-sub-btn" id="rescan">Scan Page Links</button>
+    </header>
+    <div class="empty-msg" id="empty">No videos detected yet. Play media on the tab.</div>
+    <div class="media-list" id="list"></div>
+  </div>
+
+  <!-- Panel 2: Udemy Course Bulk Exporter -->
+  <div class="panel" id="tab-course">
+    <header>
+      <h2>
+        <span>Curriculum Crawler</span>
+        <span id="curriculum-count">0 items</span>
+      </h2>
+      <button class="action-sub-btn" id="fetch-curriculum">Fetch Syllabus</button>
+    </header>
+
+    <div class="course-meta" id="course-details" style="display: none;">
+      <div>Course: <strong id="course-title">-</strong></div>
+      <div>ID: <span id="course-id">-</span> | Sections: <span id="total-sections">0</span> | Lectures: <span id="total-lectures">0</span></div>
+    </div>
+
+    <div class="bulk-ctrl" id="bulk-actions" style="display: none;">
+      <button class="action-btn" id="start-bulk-download">Start Bulk Download (Structured)</button>
+    </div>
+
+    <div class="progress-bar-container" id="bulk-progress-bar-container">
+      <div class="progress-bar" id="bulk-progress-bar"></div>
+    </div>
+    <div class="status-text" id="bulk-status-text"></div>
+
+    <div class="empty-msg" id="curriculum-empty">Open a Udemy Course page and click "Fetch Syllabus" to read all sections, lectures, subtitles (.srt), and resources.</div>
+    <div class="media-list" id="curriculum-list"></div>
+  </div>
 
   <script src="hls-downloader.js"></script>
+  <script src="course-formatter.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

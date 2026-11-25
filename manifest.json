@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Media Sniffer & Downloader",
-  "version": "1.2",
-  "description": "Sniffs and downloads media stream URLs, HLS (.m3u8), and page DOM video links.",
+  "name": "Media & Course Downloader",
+  "version": "2.0",
+  "description": "Sniffs media, downloads HLS streams (.m3u8), and bulk-crawls Udemy courses with structured folders, subtitles (.srt), and resources.",
   "permissions": [
     "webRequest",
     "downloads",
@@ -18,7 +18,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "js": ["content.js", "udemy-crawler.js"],
       "run_at": "document_start"
     }
   ],
@@ -30,6 +30,6 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Detected Videos"
+    "default_title": "Media & Course Downloader"
   }
 }
