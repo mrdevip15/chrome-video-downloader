@@ -1,0 +1,12 @@
+# OS & Editor artifacts
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Node / package artifacts (if bundled later)
+node_modules/
+dist/
+*.log

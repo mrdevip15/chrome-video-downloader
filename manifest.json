@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Media Sniffer & Downloader",
+  "version": "1.0",
+  "description": "Sniffs and downloads media stream URLs and direct video files detected in tabs.",
+  "permissions": [
+    "webRequest",
+    "downloads",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Detected Videos"
+  }
+}
