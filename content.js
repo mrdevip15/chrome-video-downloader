@@ -1,6 +1,33 @@
 (() => {
   const VIDEO_EXT_REGEX = /\.(mp4|m4v|webm|mkv|mov|avi|flv|m3u8|mpd)(\?.*)?$/i;
 
+  // Inject hook script into the actual page execution environment
+  try {
+    const s = document.createElement('script');
+    s.src = chrome.runtime.getURL('injected.js');
+    (document.head || document.documentElement).appendChild(s);
+    s.onload = () => s.remove();
+  } catch (_) {}
+
+  // Listen for media messages dispatched by injected hook
+  window.addEventListener('message', (event) => {
+    if (event.source !== window || !event.data || event.data.type !== '__UDEMY_MEDIA_SNIFFED__') return;
+    const { url, isM3u8 } = event.data;
+    if (url) {
+      chrome.runtime.sendMessage({
+        action: 'pageDomMediaFound',
+        items: [{
+          url: url,
+          filename: getFilenameFromUrl(url),
+          isHls: Boolean(isM3u8),
+          type: 'media',
+          source: 'XHR/Fetch Hook',
+          timestamp: Date.now()
+        }]
+      });
+    }
+  });
+
   function resolveUrl(url) {
     if (!url) return null;
     try {
@@ -21,9 +48,41 @@
     return 'video';
   }
 
+  function scanUdemySpecificMedia() {
+    const results = [];
+
+    // Udemy Shaka player video tag & container
+    const udemyVideos = document.querySelectorAll('video, [data-purpose="shaka-video-player"] video');
+    udemyVideos.forEach((v) => {
+      // Find lecture title if present on page
+      let title = '';
+      const titleEl = document.querySelector('[data-purpose="course-header-title"] a, .lecture-view--container--mrZSm');
+      if (titleEl) {
+        title = titleEl.getAttribute('aria-label') || titleEl.textContent || '';
+        title = title.replace(/[\\/:*?"<>|]/g, '_').trim();
+      }
+
+      // Check currentSrc and src
+      const src = v.currentSrc || v.src;
+      if (src && !src.startsWith('blob:') && !src.startsWith('data:')) {
+        results.push({
+          url: src,
+          filename: title ? `${title}.mp4` : getFilenameFromUrl(src),
+          isHls: src.includes('.m3u8'),
+          type: 'media',
+          source: 'Udemy Player',
+          timestamp: Date.now()
+        });
+      }
+    });
+
+    return results;
+  }
+
   function scanDomVideos() {
     const foundUrls = new Set();
-    const results = [];
+    const results = [...scanUdemySpecificMedia()];
+    results.forEach(r => foundUrls.add(r.url));
 
     function addCandidate(rawUrl, sourceDescription) {
       const fullUrl = resolveUrl(rawUrl);
@@ -78,7 +137,7 @@
     return results;
   }
 
-  // Scan immediately and notify background script
+  // Scan immediately
   const scanned = scanDomVideos();
   if (scanned.length > 0) {
     chrome.runtime.sendMessage({
