@@ -1,7 +1,7 @@
 (() => {
   const VIDEO_EXT_REGEX = /\.(mp4|m4v|webm|mkv|mov|avi|flv|m3u8|mpd)(\?.*)?$/i;
 
-  // Inject hook script into the actual page execution environment
+  // Page-context hook (fetch/XHR) that reports stream manifests the player requests.
   try {
     const s = document.createElement('script');
     s.src = chrome.runtime.getURL('injected.js');
@@ -9,149 +9,81 @@
     s.onload = () => s.remove();
   } catch (_) {}
 
-  // Listen for media messages dispatched by injected hook
-  window.addEventListener('message', (event) => {
-    if (event.source !== window || !event.data || event.data.type !== '__UDEMY_MEDIA_SNIFFED__') return;
-    const { url, isM3u8 } = event.data;
-    if (url) {
-      chrome.runtime.sendMessage({
-        action: 'pageDomMediaFound',
-        items: [{
-          url: url,
-          filename: getFilenameFromUrl(url),
-          isHls: Boolean(isM3u8),
-          type: 'media',
-          source: 'XHR/Fetch Hook',
-          timestamp: Date.now()
-        }]
-      });
-    }
-  });
-
   function resolveUrl(url) {
     if (!url) return null;
-    try {
-      return new URL(url, window.location.href).href;
-    } catch (_) {
-      return null;
-    }
+    try { return new URL(url, location.href).href; } catch (_) { return null; }
   }
 
   function getFilenameFromUrl(url) {
     try {
-      const parsed = new URL(url);
-      const segments = parsed.pathname.split('/').filter(Boolean);
-      if (segments.length > 0) {
-        return decodeURIComponent(segments[segments.length - 1]);
-      }
+      const segs = new URL(url).pathname.split('/').filter(Boolean);
+      if (segs.length) return decodeURIComponent(segs[segs.length - 1]);
     } catch (_) {}
     return 'video';
   }
 
-  function scanUdemySpecificMedia() {
-    const results = [];
-
-    // Udemy Shaka player video tag & container
-    const udemyVideos = document.querySelectorAll('video, [data-purpose="shaka-video-player"] video');
-    udemyVideos.forEach((v) => {
-      // Find lecture title if present on page
-      let title = '';
-      const titleEl = document.querySelector('[data-purpose="course-header-title"] a, .lecture-view--container--mrZSm');
-      if (titleEl) {
-        title = titleEl.getAttribute('aria-label') || titleEl.textContent || '';
-        title = title.replace(/[\\/:*?"<>|]/g, '_').trim();
-      }
-
-      // Check currentSrc and src
-      const src = v.currentSrc || v.src;
-      if (src && !src.startsWith('blob:') && !src.startsWith('data:')) {
-        results.push({
-          url: src,
-          filename: title ? `${title}.mp4` : getFilenameFromUrl(src),
-          isHls: src.includes('.m3u8'),
-          type: 'media',
-          source: 'Udemy Player',
-          timestamp: Date.now()
-        });
-      }
-    });
-
-    return results;
+  function send(items) {
+    if (!items.length) return;
+    try { chrome.runtime.sendMessage({ action: 'pageDomMediaFound', items }); } catch (_) {}
   }
+
+  // Only real manifests are forwarded (API JSON calls are ignored).
+  window.addEventListener('message', (event) => {
+    if (event.source !== window || !event.data || event.data.type !== '__UDEMY_MEDIA_SNIFFED__') return;
+    const { url, isM3u8 } = event.data;
+    if (!url) return;
+    const full = resolveUrl(url);
+    const isMpd = /\.mpd(\?|$)/i.test(full || '');
+    if (!full || (!isM3u8 && !isMpd)) return;
+    send([{ url: full, filename: getFilenameFromUrl(full), isHls: !!isM3u8, isDash: isMpd, type: 'media', source: 'XHR/Fetch Hook', timestamp: Date.now() }]);
+  });
 
   function scanDomVideos() {
-    const foundUrls = new Set();
-    const results = [...scanUdemySpecificMedia()];
-    results.forEach(r => foundUrls.add(r.url));
+    const found = new Set();
+    const results = [];
 
-    function addCandidate(rawUrl, sourceDescription) {
-      const fullUrl = resolveUrl(rawUrl);
-      if (!fullUrl) return;
-      if (fullUrl.startsWith('blob:') || fullUrl.startsWith('data:')) return;
-      if (foundUrls.has(fullUrl)) return;
-
-      const isVideoExt = VIDEO_EXT_REGEX.test(fullUrl);
-      if (isVideoExt) {
-        foundUrls.add(fullUrl);
-        results.push({
-          url: fullUrl,
-          filename: getFilenameFromUrl(fullUrl),
-          isHls: fullUrl.includes('.m3u8'),
-          type: 'media',
-          source: sourceDescription,
-          timestamp: Date.now()
-        });
-      }
-    }
-
-    // 1. Scan <video> and <audio> tags
-    document.querySelectorAll('video, audio').forEach((mediaEl) => {
-      if (mediaEl.currentSrc) addCandidate(mediaEl.currentSrc, '<video.currentSrc>');
-      if (mediaEl.src) addCandidate(mediaEl.src, '<video.src>');
-
-      mediaEl.querySelectorAll('source').forEach((srcEl) => {
-        if (srcEl.src) addCandidate(srcEl.src, '<source.src>');
+    const add = (rawUrl, source) => {
+      const full = resolveUrl(rawUrl);
+      if (!full || full.startsWith('blob:') || full.startsWith('data:') || found.has(full)) return;
+      if (!VIDEO_EXT_REGEX.test(full)) return;
+      found.add(full);
+      results.push({
+        url: full,
+        filename: getFilenameFromUrl(full),
+        isHls: /\.m3u8(\?|$)/i.test(full),
+        isDash: /\.mpd(\?|$)/i.test(full),
+        type: 'media',
+        source,
+        timestamp: Date.now()
       });
-    });
+    };
 
-    // 2. Scan all anchor <a> links
-    document.querySelectorAll('a[href]').forEach((a) => {
-      addCandidate(a.getAttribute('href'), '<a> link');
+    document.querySelectorAll('video, audio').forEach((el) => {
+      if (el.currentSrc) add(el.currentSrc, '<video.currentSrc>');
+      if (el.src) add(el.src, '<video.src>');
+      el.querySelectorAll('source').forEach((s) => s.src && add(s.src, '<source.src>'));
     });
-
-    // 3. Scan <iframe> embeds & objects
-    document.querySelectorAll('iframe[src], embed[src], object[data]').forEach((el) => {
-      const src = el.getAttribute('src') || el.getAttribute('data');
-      if (src) addCandidate(src, '<frame/embed>');
-    });
-
-    // 4. Scan data-* attributes across the entire document
+    document.querySelectorAll('a[href]').forEach((a) => add(a.getAttribute('href'), '<a> link'));
+    document.querySelectorAll('iframe[src], embed[src], object[data]').forEach((el) => add(el.getAttribute('src') || el.getAttribute('data'), '<frame/embed>'));
     document.querySelectorAll('*').forEach((el) => {
-      for (const attr of el.attributes) {
-        if (attr.name.startsWith('data-') && VIDEO_EXT_REGEX.test(attr.value)) {
-          addCandidate(attr.value, `[${attr.name}]`);
-        }
+      for (const at of el.attributes) {
+        if (at.name.startsWith('data-') && VIDEO_EXT_REGEX.test(at.value)) add(at.value, `[${at.name}]`);
       }
     });
-
     return results;
   }
 
-  // Scan immediately
-  const scanned = scanDomVideos();
-  if (scanned.length > 0) {
-    chrome.runtime.sendMessage({
-      action: 'pageDomMediaFound',
-      items: scanned
-    });
-  }
+  // content.js runs at document_start, so wait for the DOM before scanning.
+  const initialScan = () => send(scanDomVideos());
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initialScan, { once: true });
+  else initialScan();
 
-  // Listen for explicit rescan requests from popup
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-    if (msg.action === 'scanDom') {
-      const current = scanDomVideos();
-      sendResponse({ items: current });
-      return true;
+    if (msg && msg.action === 'scanDom') {
+      const items = scanDomVideos();
+      send(items);
+      sendResponse({ items });
     }
+    return false;
   });
 })();

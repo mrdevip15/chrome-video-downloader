@@ -2,262 +2,111 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Media & Course Downloader</title>
+  <title>Media &amp; Course Downloader</title>
   <style>
+    * { box-sizing: border-box; }
     body {
-      width: 440px;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      width: 380px;
       margin: 0;
       padding: 12px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background: #0f172a;
       color: #e2e8f0;
-      box-sizing: border-box;
-    }
-    .tabs {
-      display: flex;
-      border-bottom: 1px solid #334155;
-      margin-bottom: 12px;
-    }
-    .tab-btn {
-      flex: 1;
-      padding: 8px 12px;
-      background: none;
-      border: none;
-      color: #94a3b8;
       font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      text-align: center;
-      border-bottom: 2px solid transparent;
-      transition: all 0.15s;
     }
-    .tab-btn.active {
-      color: #38bdf8;
-      border-bottom-color: #38bdf8;
-    }
-    .panel {
-      display: none;
-    }
-    .panel.active {
-      display: block;
-    }
-    header {
+    .header {
       display: flex;
       justify-content: space-between;
       align-items: center;
       margin-bottom: 10px;
     }
-    h2 {
+    .header h1 {
       margin: 0;
       font-size: 13px;
-      font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.4px;
       color: #94a3b8;
-      display: flex;
-      align-items: center;
-      gap: 6px;
     }
-    #count, #curriculum-count {
-      background: #1e293b;
-      padding: 2px 6px;
+    .btn {
+      padding: 5px 10px;
       border-radius: 4px;
+      border: none;
       font-size: 11px;
-    }
-    .action-sub-btn {
-      padding: 4px 8px;
-      font-size: 11px;
-      font-weight: 500;
-      border: 1px solid #334155;
-      background: #1e293b;
-      color: #cbd5e1;
-      border-radius: 4px;
+      font-weight: 600;
       cursor: pointer;
-    }
-    .action-sub-btn:hover {
-      background: #334155;
       color: #fff;
+      background: #2563eb;
     }
-    .empty-msg {
-      padding: 20px 0;
-      text-align: center;
-      color: #64748b;
-      font-size: 12px;
-    }
-    .media-list {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      max-height: 400px;
-      overflow-y: auto;
-    }
-    .media-item {
-      background: #1e293b;
-      border: 1px solid #334155;
+    .btn:hover { filter: brightness(1.1); }
+    .btn-secondary { background: #334155; color: #e2e8f0; }
+    .btn-success { background: #059669; width: 100%; margin-top: 8px; padding: 7px; }
+    .course-card {
+      background: #13223a;
+      border: 1px solid #1d4ed8;
       border-radius: 6px;
       padding: 10px;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
+      margin-bottom: 10px;
+      display: none;
     }
-    .header-row {
+    .course-label { font-size: 10px; text-transform: uppercase; color: #60a5fa; font-weight: 700; }
+    .course-name { font-size: 13px; font-weight: 600; color: #f8fafc; margin-top: 2px; }
+    .sub-head {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 8px;
-    }
-    .name {
-      font-size: 12px;
+      margin-bottom: 8px;
+      color: #94a3b8;
       font-weight: 600;
-      color: #f1f5f9;
-      word-break: break-all;
     }
-    .badges {
+    .list { display: flex; flex-direction: column; gap: 7px; max-height: 360px; overflow-y: auto; }
+    .item {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 8px;
       display: flex;
+      flex-direction: column;
       gap: 4px;
-      flex-shrink: 0;
     }
+    .item-top { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+    .item-name { font-weight: 600; color: #f1f5f9; word-break: break-all; }
     .badge {
       font-size: 9px;
       font-weight: 700;
       padding: 2px 5px;
       border-radius: 3px;
       text-transform: uppercase;
+      flex-shrink: 0;
     }
-    .badge.hls { background: #7c3aed; color: #ede9fe; }
-    .badge.direct { background: #0284c7; color: #e0f2fe; }
-    .badge.source { background: #334155; color: #94a3b8; }
-    .badge.course { background: #059669; color: #d1fae5; }
-    .url {
-      font-size: 11px;
-      color: #64748b;
-      word-break: break-all;
-      max-height: 28px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .progress-bar-container {
-      width: 100%;
-      height: 6px;
-      background: #334155;
-      border-radius: 3px;
-      overflow: hidden;
-      display: none;
-      margin-top: 4px;
-    }
-    .progress-bar {
-      height: 100%;
-      width: 0%;
-      background: #10b981;
-      transition: width 0.1s;
-    }
-    .status-text {
-      font-size: 11px;
-      color: #38bdf8;
-      display: none;
-    }
-    .actions {
-      display: flex;
-      gap: 6px;
-      margin-top: 4px;
-    }
-    button.action-btn {
-      flex: 1;
-      padding: 6px 10px;
-      font-size: 11px;
-      font-weight: 600;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      background: #2563eb;
-      color: #fff;
-      transition: background 0.15s;
-    }
-    button.action-btn:disabled {
-      background: #475569;
-      cursor: not-allowed;
-    }
-    button.action-btn:not(:disabled):hover {
-      background: #1d4ed8;
-    }
-    button.copy {
-      background: #334155;
-      color: #cbd5e1;
-      flex: 0 0 auto;
-    }
-    button.copy:hover {
-      background: #475569;
-    }
-    /* Course Downloader styling */
-    .course-meta {
-      background: #1e293b;
-      padding: 10px;
-      border-radius: 6px;
-      margin-bottom: 10px;
-      font-size: 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-    .course-meta strong {
-      color: #38bdf8;
-    }
-    .bulk-ctrl {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 10px;
-    }
+    .badge-hls { background: #7c3aed; color: #ede9fe; }
+    .badge-dash { background: #be185d; color: #fce7f3; }
+    .badge-direct { background: #0284c7; color: #e0f2fe; }
+    .item-url { font-size: 10px; color: #64748b; word-break: break-all; max-height: 26px; overflow: hidden; }
+    .actions { display: flex; gap: 6px; margin-top: 2px; }
+    .actions .btn:first-child { flex: 1; }
+    .empty { padding: 20px 8px; text-align: center; color: #64748b; }
   </style>
 </head>
 <body>
-  <div class="tabs">
-    <button class="tab-btn active" data-tab="tab-sniffer">Live Media Sniffer</button>
-    <button class="tab-btn" data-tab="tab-course">Udemy Course Bulk Downloader</button>
+  <div class="header">
+    <h1>Media Downloader</h1>
+    <button id="open-manager" class="btn">Open Manager</button>
   </div>
 
-  <!-- Panel 1: Live Sniffer -->
-  <div class="panel active" id="tab-sniffer">
-    <header>
-      <h2>
-        <span>Detected Media</span>
-        <span id="count">0</span>
-      </h2>
-      <button class="action-sub-btn" id="rescan">Scan Page Links</button>
-    </header>
-    <div class="empty-msg" id="empty">No videos detected yet. Play media on the tab.</div>
-    <div class="media-list" id="list"></div>
+  <div id="course-card" class="course-card">
+    <div class="course-label">Udemy Course Detected</div>
+    <div id="course-name" class="course-name">-</div>
+    <button id="open-course-bulk" class="btn btn-success">Open Course Bulk Downloader</button>
   </div>
 
-  <!-- Panel 2: Udemy Course Bulk Exporter -->
-  <div class="panel" id="tab-course">
-    <header>
-      <h2>
-        <span>Curriculum Crawler</span>
-        <span id="curriculum-count">0 items</span>
-      </h2>
-      <button class="action-sub-btn" id="fetch-curriculum">Fetch Syllabus</button>
-    </header>
-
-    <div class="course-meta" id="course-details" style="display: none;">
-      <div>Course: <strong id="course-title">-</strong></div>
-      <div>ID: <span id="course-id">-</span> | Sections: <span id="total-sections">0</span> | Lectures: <span id="total-lectures">0</span></div>
-    </div>
-
-    <div class="bulk-ctrl" id="bulk-actions" style="display: none;">
-      <button class="action-btn" id="start-bulk-download">Start Bulk Download (Structured)</button>
-    </div>
-
-    <div class="progress-bar-container" id="bulk-progress-bar-container">
-      <div class="progress-bar" id="bulk-progress-bar"></div>
-    </div>
-    <div class="status-text" id="bulk-status-text"></div>
-
-    <div class="empty-msg" id="curriculum-empty">Open a Udemy Course page and click "Fetch Syllabus" to read all sections, lectures, subtitles (.srt), and resources.</div>
-    <div class="media-list" id="curriculum-list"></div>
+  <div class="sub-head">
+    <span>Detected Streams (<span id="count">0</span>)</span>
+    <button id="scan-btn" class="btn btn-secondary">Scan Page</button>
   </div>
 
-  <script src="hls-downloader.js"></script>
-  <script src="course-formatter.js"></script>
+  <div id="empty" class="empty">No streams detected yet. Play video or click Scan Page.</div>
+  <div id="list" class="list"></div>
+
   <script src="popup.js"></script>
 </body>
 </html>

@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Media & Course Download Manager</title>
+  <link rel="stylesheet" href="manager.css">
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <h1>Media &amp; Course Downloader</h1>
+        <span class="version">v3.0</span>
+      </div>
+      <div class="target-box">
+        <span class="label">Target Tab:</span>
+        <span id="target-tab-label" class="pill">Detecting...</span>
+        <button id="refresh-tab-btn" class="btn btn-secondary">Refresh Tab</button>
+      </div>
+    </header>
+
+    <section class="toolbar">
+      <div class="dest-group">
+        <span class="label">Output:</span>
+        <span id="dest-badge" class="pill pill-info">Chrome Downloads</span>
+        <button id="pick-folder-btn" class="btn btn-secondary">Pick Output Folder</button>
+        <button id="reset-folder-btn" class="btn btn-secondary" style="display:none;">Reset to Chrome Downloads</button>
+      </div>
+      <div class="settings-group">
+        <label>Max Res
+          <select id="opt-max-res">
+            <option value="0">Best</option>
+            <option value="1080">1080p</option>
+            <option value="720">720p</option>
+            <option value="480">480p</option>
+            <option value="360">360p</option>
+          </select>
+        </label>
+        <label>Parallel
+          <input type="number" id="opt-concurrency" min="1" max="8" value="4">
+        </label>
+        <label class="chk"><input type="checkbox" id="opt-remux" checked> Remux HLS TS&rarr;MP4</label>
+        <label class="chk"><input type="checkbox" id="opt-skip" checked> Skip Completed / Existing</label>
+      </div>
+    </section>
+
+    <section id="queue-banner" class="queue-banner" style="display:none;">
+      <div class="queue-top">
+        <div id="queue-status-label" class="queue-label">Idle</div>
+        <div class="queue-controls">
+          <button id="btn-pause" class="btn btn-warn">Pause</button>
+          <button id="btn-resume" class="btn btn-primary" style="display:none;">Resume</button>
+          <button id="btn-cancel" class="btn btn-danger">Cancel</button>
+        </div>
+      </div>
+      <div class="progress-wrap">
+        <div id="queue-progress-bar" class="progress-bar"></div>
+      </div>
+      <div id="queue-detail" class="queue-detail"></div>
+    </section>
+
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="panel-sniffer">Live Sniffer &amp; Manual URL</button>
+      <button class="tab-btn" data-tab="panel-course">Udemy Course Bulk Downloader</button>
+      <button class="tab-btn" data-tab="panel-history">History &amp; Log</button>
+    </nav>
+
+    <!-- Tab 1: Sniffer & Manual URL -->
+    <section id="panel-sniffer" class="panel active">
+      <div class="card manual-box">
+        <h3>Direct / HLS / DASH URL Download</h3>
+        <div class="manual-row">
+          <input type="url" id="manual-url" placeholder="https://example.com/video.mp4 or .m3u8 or .mpd">
+          <input type="text" id="manual-name" placeholder="Optional filename (e.g. lecture-1)">
+          <button id="manual-dl-btn" class="btn btn-primary">Download</button>
+        </div>
+      </div>
+
+      <div class="section-head">
+        <h3>Detected Streams on Target Tab <span id="sniffer-count" class="pill">0</span></h3>
+        <button id="scan-dom-btn" class="btn btn-secondary">Scan Page Links</button>
+      </div>
+      <div id="sniffer-empty" class="empty">No streams detected on the target tab yet. Play the video or click Scan Page Links.</div>
+      <div id="sniffer-list" class="item-list"></div>
+    </section>
+
+    <!-- Tab 2: Udemy Course Bulk -->
+    <section id="panel-course" class="panel">
+      <div class="section-head">
+        <h3>Udemy Curriculum</h3>
+        <div class="btn-row">
+          <button id="fetch-syllabus-btn" class="btn btn-primary">Fetch Syllabus</button>
+          <button id="reset-progress-btn" class="btn btn-secondary" style="display:none;">Reset Course Progress</button>
+        </div>
+      </div>
+
+      <div id="course-meta" class="card course-meta" style="display:none;">
+        <div><strong id="course-title">-</strong> <span id="course-id-badge" class="pill">ID: -</span></div>
+        <div class="meta-stats">
+          Sections: <strong id="meta-sections">0</strong> &middot;
+          Lectures: <strong id="meta-lectures">0</strong> &middot;
+          Completed: <strong id="meta-done">0</strong>
+        </div>
+      </div>
+
+      <div id="course-options" class="card options-card" style="display:none;">
+        <div class="opt-row">
+          <span class="opt-title">Include:</span>
+          <label class="chk"><input type="checkbox" id="chk-videos" checked> Videos</label>
+          <label class="chk"><input type="checkbox" id="chk-subtitles" checked> Subtitles (.srt)</label>
+          <label class="chk"><input type="checkbox" id="chk-articles" checked> Articles</label>
+          <label class="chk"><input type="checkbox" id="chk-resources" checked> Resources</label>
+          <label class="chk"><input type="checkbox" id="chk-index" checked> Generate index.html</label>
+          <label>Article Format
+            <select id="opt-article-fmt">
+              <option value="html">HTML (.html)</option>
+              <option value="md">Markdown (.md)</option>
+              <option value="both">Both (.html + .md)</option>
+            </select>
+          </label>
+        </div>
+        <div class="opt-row" id="caption-filter-row">
+          <span class="opt-title">Subtitles:</span>
+          <div class="btn-row">
+            <button id="sub-none-btn" class="btn btn-xs">None</button>
+            <button id="sub-en-btn" class="btn btn-xs">English</button>
+            <button id="sub-all-btn" class="btn btn-xs">All</button>
+          </div>
+          <div id="caption-locales" class="locale-chips"></div>
+        </div>
+        <div class="opt-row between">
+          <div class="btn-row">
+            <button id="sel-all-btn" class="btn btn-secondary btn-sm">Select All</button>
+            <button id="sel-none-btn" class="btn btn-secondary btn-sm">Select None</button>
+            <button id="sel-unfinished-btn" class="btn btn-secondary btn-sm">Unfinished Only</button>
+          </div>
+          <button id="start-bulk-btn" class="btn btn-success">Start / Resume Bulk Download</button>
+        </div>
+      </div>
+
+      <div id="course-empty" class="empty">Open a Udemy course tab, then click <strong>Fetch Syllabus</strong>.</div>
+      <div id="course-tree" class="course-tree"></div>
+    </section>
+
+    <!-- Tab 3: History & Log -->
+    <section id="panel-history" class="panel">
+      <div class="section-head">
+        <h3>Download History</h3>
+        <button id="clear-history-btn" class="btn btn-secondary">Clear History</button>
+      </div>
+      <div id="history-empty" class="empty">No completed downloads recorded yet.</div>
+      <div id="history-list" class="item-list"></div>
+
+      <div class="section-head" style="margin-top:18px;">
+        <h3>Activity Log</h3>
+        <button id="clear-log-btn" class="btn btn-secondary">Clear Log</button>
+      </div>
+      <div id="log-box" class="log-box"></div>
+    </section>
+  </div>
+
+  <script src="vendor/mux.min.js"></script>
+  <script src="lib/vtt.js"></script>
+  <script src="lib/m3u8.js"></script>
+  <script src="lib/mpd.js"></script>
+  <script src="lib/engine.js"></script>
+  <script src="lib/udemy-model.js"></script>
+  <script src="lib/export.js"></script>
+  <script src="manager.js"></script>
+</body>
+</html>
