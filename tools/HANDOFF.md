@@ -135,8 +135,9 @@ Fallbacks, in order of preference:
 
 ## Housekeeping
 
-* Never commit cookies, license URLs or `.wvd` files. Secret grep before every commit:
-  `grep -rilE "eyJhbG|ud_user_jwt|access_token" .`
+* Never commit cookies, license URLs or `.wvd` files. Secret grep before every commit —
+  written this way so the example does not match itself:
+  `grep -rilE 'eyJ[A-Za-z0-9]{10}|_[a-z]*jwt|access[_]token' .`
 * The session tokens pasted during this work are compromised; rotating the account password
   is the only remediation.
 * `tools/wvd_dump*.py` / `wvd_hook*.js` are emulator probes kept for the record — they did not
