@@ -32,6 +32,37 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
 
 
+def load_cookies(path: str | None, browser: str | None) -> list[dict]:
+    """Cookies either from an export file, or straight out of a browser profile.
+
+    Reading them from the browser means no credential ever has to be copied into a
+    chat window or a file on disk.
+    """
+    if browser:
+        try:
+            import browser_cookie3
+        except ImportError:
+            sys.exit("browser_cookie3 is not installed: pip install browser_cookie3")
+
+        getter = getattr(browser_cookie3, browser, None)
+        if getter is None:
+            sys.exit(f"unsupported browser: {browser}")
+        try:
+            jar = getter(domain_name="udemy.com")
+        except Exception as exc:  # RequiresAdminError, missing profile, locked DB, ...
+            sys.exit(f"could not read {browser} cookies: {type(exc).__name__}: {exc}\n"
+                     f"Edge/Chrome on recent Windows builds need an elevated shell; "
+                     f"alternatively export cookies to JSON and pass --cookies.")
+        out = [{"domain": c.domain, "name": c.name, "value": c.value} for c in jar]
+        if not out:
+            sys.exit(f"no udemy.com cookies found in {browser} — wrong profile, or not logged in?")
+        return out
+
+    if not path:
+        sys.exit("pass a cookies.json or --browser <name>")
+    return json.load(open(path, encoding="utf-8"))
+
+
 def cookie_header(cookies: list[dict]) -> str:
     return "; ".join(f'{c["name"]}={c["value"]}' for c in cookies if "udemy.com" in c.get("domain", ""))
 
@@ -108,13 +139,14 @@ def build_license_url(token: str) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("cookies", help="cookie-export JSON array")
     ap.add_argument("course", help="course slug or numeric id")
     ap.add_argument("lecture", help="lecture id")
+    ap.add_argument("--cookies", help="cookie-export JSON array")
+    ap.add_argument("--browser", help="read cookies from this browser instead (chrome, edge, firefox)")
     ap.add_argument("--out", help="write the widevine job here")
     args = ap.parse_args()
 
-    cookies = json.load(open(args.cookies, encoding="utf-8"))
+    cookies = load_cookies(args.cookies, args.browser)
     ck = cookie_header(cookies)
 
     course = resolve_course(args.course, ck)

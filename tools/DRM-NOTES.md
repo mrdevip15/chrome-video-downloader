@@ -186,7 +186,7 @@ route exposes a live session token, so prefer the first.
 
 | file | purpose |
 |---|---|
-| `tools/udemy_license.py` | cookies + course/lecture → KID, PSSH, license URL, `<x>.widevine.json` job |
+| `tools/udemy_license.py` | course/lecture → KID, PSSH, license URL, `<x>.widevine.json` job; cookies either from a JSON export (`--cookies`) or straight out of a browser profile (`--browser edge`) |
 | `tools/drm_payload.py` | turn an exported job into copy-paste fields (cookies redacted by default) |
 
 ## 10. Phone route (Xiaomi Poco X3 NFC, `surya`)

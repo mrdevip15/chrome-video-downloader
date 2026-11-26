@@ -102,7 +102,7 @@ verified findings and every dead end, and `tools/HANDOFF.md` is the resume plan 
 its KID, PSSH and license URL:
 
 ```powershell
-python tools/udemy_license.py cookies.json <course-slug-or-id> <lecture-id> --out job.json
+python tools/udemy_license.py <course-slug-or-id> <lecture-id> --browser edge --out job.json
 python tools/widevine_helper.py --cdm device.wvd job.json
 ```
 

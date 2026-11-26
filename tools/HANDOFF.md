@@ -104,7 +104,8 @@ Must print `3`. A wrong or truncated key fails here, not later.
 
 ```bash
 # fresh job (the license token lives ~5 minutes — never reuse an old one)
-python tools/udemy_license.py cookies.json 1659676 51267967 --out job.json
+python tools/udemy_license.py 1659676 51267967 --browser edge --out job.json
+# cookies can also come from an export: --cookies cookies.json
 
 # local license + decrypt (no third party touches the token)
 python tools/widevine_helper.py --cdm device.wvd job.json
