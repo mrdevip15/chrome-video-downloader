@@ -217,13 +217,25 @@
   }
 
   // --- Target Tab ---
-  function sendToTargetTab(msg) {
+  async function ensureContentScripts(tabId) {
+    if (!chrome.scripting || typeof chrome.scripting.executeScript !== 'function') return false;
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      const url = (tab && tab.url) || '';
+      if (!/^https?:\/\//i.test(url)) return false;
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: ['content.js', 'udemy-crawler.js']
+      });
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function sendTabMessageOnce(tabId, msg) {
     return new Promise((resolve, reject) => {
-      if (targetTabId == null || targetTabId < 0) {
-        reject(new Error('No target tab selected'));
-        return;
-      }
-      chrome.tabs.sendMessage(targetTabId, msg, (res) => {
+      chrome.tabs.sendMessage(tabId, msg, (res) => {
         if (chrome.runtime.lastError) {
           reject(new Error(chrome.runtime.lastError.message));
         } else {
@@ -233,27 +245,82 @@
     });
   }
 
+  async function sendToTargetTab(msg) {
+    if (targetTabId == null || targetTabId < 0) {
+      throw new Error('No target tab selected');
+    }
+    try {
+      return await sendTabMessageOnce(targetTabId, msg);
+    } catch (err) {
+      if (/Receiving end does not exist/i.test(err.message)) {
+        const injected = await ensureContentScripts(targetTabId);
+        if (injected) {
+          await new Promise((r) => setTimeout(r, 150));
+          return await sendTabMessageOnce(targetTabId, msg);
+        }
+      }
+      throw err;
+    }
+  }
+
+  function isWebTab(tab, extBase) {
+    if (!tab) return false;
+    const u = tab.url || '';
+    if (u.startsWith(extBase)) return false;
+    if (/^(chrome|edge|about|devtools):/i.test(u)) return false;
+    return true;
+  }
+
+  function updateTargetTabLabel(tab) {
+    if (!tab) {
+      $('target-tab-label').textContent = 'None found';
+      $('target-tab-label').title = '';
+      return;
+    }
+    const label = `#${tab.id}: ${tab.title || tab.url || 'Tab'}`;
+    $('target-tab-label').textContent = label;
+    $('target-tab-label').title = tab.url || label;
+  }
+
   async function detectTargetTab(preferredId = null) {
+    const extBase = chrome.runtime.getURL('');
     if (preferredId != null && !isNaN(preferredId)) {
       try {
         const tab = await chrome.tabs.get(preferredId);
-        if (tab) {
+        if (tab && !(tab.url || '').startsWith(extBase)) {
           targetTabId = tab.id;
-          $('target-tab-label').textContent = `#${tab.id}: ${tab.title || tab.url}`;
+          updateTargetTabLabel(tab);
           return tab;
         }
       } catch (_) {}
     }
-    const tabs = await chrome.tabs.query({ currentWindow: true });
-    const extBase = chrome.runtime.getURL('');
-    const candidate = tabs.find((t) => t.active && !t.url.startsWith(extBase)) || tabs.find((t) => !t.url.startsWith(extBase));
+
+    // In Side Panel mode, the active tab in the current window IS the page beside the panel.
+    const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    const activeCandidate = (activeTabs || []).find((t) => !(t.url || '').startsWith(extBase));
+    if (activeCandidate) {
+      targetTabId = activeCandidate.id;
+      updateTargetTabLabel(activeCandidate);
+      return activeCandidate;
+    }
+
+    // Fallback when opened as a standalone tab or detached window: pick an active/web tab.
+    const currentTabs = await chrome.tabs.query({ currentWindow: true });
+    let candidate = (currentTabs || []).find((t) => isWebTab(t, extBase))
+      || (currentTabs || []).find((t) => !(t.url || '').startsWith(extBase));
+
+    if (!candidate) {
+      const allActive = await chrome.tabs.query({ active: true });
+      candidate = (allActive || []).find((t) => isWebTab(t, extBase));
+    }
+
     if (candidate) {
       targetTabId = candidate.id;
-      $('target-tab-label').textContent = `#${candidate.id}: ${candidate.title || candidate.url}`;
+      updateTargetTabLabel(candidate);
       return candidate;
     }
     targetTabId = null;
-    $('target-tab-label').textContent = 'None found';
+    updateTargetTabLabel(null);
     return null;
   }
 
@@ -264,6 +331,10 @@
       return;
     }
     chrome.runtime.sendMessage({ action: 'getMedia', tabId: targetTabId }, (res) => {
+      if (chrome.runtime.lastError) {
+        renderSnifferList([]);
+        return;
+      }
       renderSnifferList((res && res.media) || []);
     });
   }
@@ -979,7 +1050,7 @@
 
   // --- Incoming actions from popup / query ---
   async function handleIncomingAction({ tabId, view, enqueueStream }) {
-    if (tabId != null) await detectTargetTab(Number(tabId));
+    await detectTargetTab(tabId != null ? Number(tabId) : null);
     if (view === 'course') switchTab('panel-course');
     else if (view === 'history') switchTab('panel-history');
     else if (view === 'sniffer') switchTab('panel-sniffer');
@@ -991,8 +1062,9 @@
 
   // --- Init ---
   document.addEventListener('DOMContentLoaded', async () => {
-    ['opt-max-res', 'opt-concurrency', 'opt-remux', 'opt-skip'].forEach((id) => {
-      $(id).addEventListener('change', saveSettings);
+    ['opt-max-res', 'opt-concurrency', 'opt-remux', 'opt-skip', 'opt-drm'].forEach((id) => {
+      const el = $(id);
+      if (el) el.addEventListener('change', saveSettings);
     });
 
     document.querySelectorAll('.tab-btn').forEach((btn) => {
@@ -1134,10 +1206,41 @@
     $('clear-log-btn').addEventListener('click', () => { $('log-box').innerHTML = ''; });
 
     chrome.runtime.onMessage.addListener((msg) => {
-      if (msg && msg.action === 'managerAction') {
+      if (!msg || !msg.action) return;
+      if (msg.action === 'managerAction') {
         handleIncomingAction(msg);
+      } else if (msg.action === 'mediaUpdated' && msg.tabId === targetTabId) {
+        loadSnifferList();
       }
     });
+
+    // Follow active tab automatically in Side Panel mode when idle.
+    let panelWindowId = null;
+    try {
+      const win = await chrome.windows.getCurrent();
+      if (win) panelWindowId = win.id;
+    } catch (_) {}
+
+    if (chrome.tabs && chrome.tabs.onActivated) {
+      chrome.tabs.onActivated.addListener(async (activeInfo) => {
+        if (isRunning) return;
+        if (panelWindowId != null && activeInfo.windowId !== panelWindowId) return;
+        const tab = await detectTargetTab(activeInfo.tabId);
+        if (tab) await loadSnifferList();
+      });
+    }
+
+    if (chrome.tabs && chrome.tabs.onUpdated) {
+      chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+        if (tabId !== targetTabId) return;
+        if (changeInfo.title || changeInfo.status === 'complete') {
+          updateTargetTabLabel(tab);
+        }
+        if (changeInfo.status === 'complete') {
+          loadSnifferList();
+        }
+      });
+    }
 
     await loadSettings();
     await loadHistory();

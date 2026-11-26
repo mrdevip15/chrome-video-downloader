@@ -10,11 +10,16 @@
     "tabs",
     "storage",
     "unlimitedStorage",
-    "notifications"
+    "notifications",
+    "sidePanel",
+    "scripting"
   ],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "manager.html"
   },
   "content_scripts": [
     {
@@ -35,8 +40,7 @@
     "128": "icons/icon128.png"
   },
   "action": {
-    "default_popup": "popup.html",
-    "default_title": "Media & Course Downloader",
+    "default_title": "Media & Course Downloader (Open Side Panel)",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png"

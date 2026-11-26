@@ -1,6 +1,8 @@
 // Runs on Udemy pages. Answers curriculum / lecture / resource lookups using the page's own session.
 (() => {
+  if (window.__CVD_UDEMY_CRAWLER_LOADED__) return;
   if (!/(^|\.)udemy\.com$/i.test(location.hostname) && location.hostname !== '127.0.0.1' && location.hostname !== 'localhost') return;
+  window.__CVD_UDEMY_CRAWLER_LOADED__ = true;
 
   const api = (path) => `${location.origin}${path}`;
 

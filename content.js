@@ -1,5 +1,9 @@
 (() => {
+  if (window.__CVD_CONTENT_LOADED__) return;
+  window.__CVD_CONTENT_LOADED__ = true;
+
   const VIDEO_EXT_REGEX = /\.(mp4|m4v|webm|mkv|mov|avi|flv|m3u8|mpd)(\?.*)?$/i;
+  let latestDrmCapture = null;
 
   // Page-context hook (fetch/XHR) that reports stream manifests the player requests.
   try {
@@ -31,14 +35,17 @@
   window.addEventListener('message', (event) => {
     if (event.source !== window || !event.data) return;
     if (event.data.type === '__DRM_CAPTURE__') {
+      if (event.data.capture && typeof event.data.capture === 'object') {
+        latestDrmCapture = { ...(latestDrmCapture || {}), ...event.data.capture };
+      }
       try { chrome.runtime.sendMessage({ action: 'drmCaptureFound', capture: event.data.capture }); } catch (_) {}
       return;
     }
     if (event.data.type !== '__UDEMY_MEDIA_SNIFFED__') return;
-    const { url, isM3u8 } = event.data;
+    const { url, isM3u8, isMpd: flagMpd } = event.data;
     if (!url) return;
     const full = resolveUrl(url);
-    const isMpd = /\.mpd(\?|$)/i.test(full || '');
+    const isMpd = !!flagMpd || /\.mpd(\?|$)/i.test(full || '');
     if (!full || (!isM3u8 && !isMpd)) return;
     send([{ url: full, filename: getFilenameFromUrl(full), isHls: !!isM3u8, isDash: isMpd, type: 'media', source: 'XHR/Fetch Hook', timestamp: Date.now() }]);
   });
@@ -90,7 +97,7 @@
       sendResponse({ items });
     }
     if (msg && msg.action === 'getPageDrmCapture') {
-      sendResponse({ capture: (window.__DRM_CAPTURES__ || null) });
+      sendResponse({ capture: latestDrmCapture });
     }
     return false;
   });

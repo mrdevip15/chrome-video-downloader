@@ -141,7 +141,12 @@
 
     self.addEventListener('load', function () {
       if (!url) return;
-      const text = typeof self.responseText === 'string' ? self.responseText.slice(0, 2000) : '';
+      let text = '';
+      try {
+        if ((self.responseType === '' || self.responseType === 'text') && typeof self.responseText === 'string') {
+          text = self.responseText.slice(0, 2000);
+        }
+      } catch (_) {}
       const isM3u8 = /\.m3u8(\?|$)/i.test(url) || text.includes('#EXTM3U');
       const isMpd = /\.mpd(\?|$)/i.test(url) || /<MPD[\s>]/i.test(text);
       if (isM3u8 || isMpd) {
