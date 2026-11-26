@@ -106,6 +106,42 @@ python tools/udemy_license.py <course-slug-or-id> <lecture-id> --browser edge --
 python tools/widevine_helper.py --cdm device.wvd job.json
 ```
 
+## CLI downloader (no extension needed)
+
+`tools/udemy_cli.py` does the whole course from a terminal: one `login`, then a course URL.
+
+```powershell
+# 1. store the session once (~/.udemy-cli/cookies.json, never in the repo)
+python tools/udemy_cli.py login --browser edge      # or --cookies exported.json
+
+# 2. see what will be downloaded
+python tools/udemy_cli.py list https://www.udemy.com/course/foo/
+
+# 3. download everything, 4 lectures at a time, 8 fragments per lecture
+python tools/udemy_cli.py download https://www.udemy.com/course/foo/ --out D:\Courses -w 4 -s 8
+```
+
+Output is a structured tree plus a report:
+
+```
+D:\Courses\<course>\
+    01 - Section name\
+        01 - Lecture title.mp4
+        01 - Lecture title.en.vtt
+    _report.json
+```
+
+- `-w/--workers` — lectures in parallel (default 3).
+- `-s/--seg-workers` — HLS fragments fetched in parallel *per* lecture (default 8). ffmpeg
+  cannot do this itself, so the segments are fetched here and ffmpeg is handed a local
+  playlist that only needs decrypting and muxing.
+- `--no-captions` skips the `.vtt` files; `--include-non-video` also walks articles/quizzes.
+- Existing files are skipped, so re-running resumes.
+
+AES-128 lectures are decrypted and muxed automatically. Widevine/SAMPLE-AES lectures are not
+downloaded as garbage: a `<lecture>.widevine.json` job with KID, PSSH and the license URL is
+written instead, ready for `tools/widevine_helper.py --cdm device.wvd`.
+
 ## Testing
 
 Requires Node.js v22+ and `ffmpeg` / `ffprobe` in `PATH`:
