@@ -96,6 +96,16 @@ the real manifest.
 > Both modes only operate on content you are entitled to access with your own
 > account and CDM.
 
+Field notes from the DRM investigation are in the repo: `tools/DRM-NOTES.md` records the
+verified findings and every dead end, and `tools/HANDOFF.md` is the resume plan for the
+`.wvd` work. For Udemy specifically, `tools/udemy_license.py` resolves a lecture straight to
+its KID, PSSH and license URL:
+
+```powershell
+python tools/udemy_license.py cookies.json <course-slug-or-id> <lecture-id> --out job.json
+python tools/widevine_helper.py --cdm device.wvd job.json
+```
+
 ## Testing
 
 Requires Node.js v22+ and `ffmpeg` / `ffprobe` in `PATH`:
